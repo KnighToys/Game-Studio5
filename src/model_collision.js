@@ -156,26 +156,35 @@ export class ModelCollisionWorld {
         return { grounded: grounded, hitCeiling: hitCeiling };
     }
 
-    intersectsSegment(start, end) {
+    // Model geometry is baked into world space by addModel, so the returned
+    // point and distance use world coordinates too.
+    raycastSegment(start, end) {
         this.ray.origin.copy(start);
         this.ray.direction.copy(end).sub(start);
 
         const length = this.ray.direction.length();
 
         if (length === 0) {
-            return false;
+            return null;
         }
 
         this.ray.direction.divideScalar(length);
 
-        for (const entry of this.entries.values()) {
-            const hit = entry.tree.raycastFirst(this.ray, DoubleSide, 0, length);
+        let closestHit = null;
 
-            if (hit) {
-                return true;
+        for (const [model, entry] of this.entries) {
+            const far = closestHit ? closestHit.distance : length;
+            const hit = entry.tree.raycastFirst(this.ray, DoubleSide, 0, far);
+
+            if (hit && (!closestHit || hit.distance < closestHit.distance)) {
+                closestHit = { ...hit, model: model };
             }
         }
 
-        return false;
+        return closestHit;
+    }
+
+    intersectsSegment(start, end) {
+        return this.raycastSegment(start, end) !== null;
     }
 }

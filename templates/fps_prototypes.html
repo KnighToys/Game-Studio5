@@ -66,15 +66,15 @@ const dl=new THREE.DirectionalLight(0xffffff,.7);dl.position.set(10,20,5);S.add(
 const floor=new THREE.Mesh(new THREE.PlaneGeometry(100,100),new THREE.MeshLambertMaterial({color:0x2b3342}));floor.rotation.x=-Math.PI/2;S.add(floor);
 S.add(new THREE.GridHelper(100,50,0x556,0x334));
 const obs=[],obsM=[];
-function box(x,z,w,h,d,c){const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),new THREE.MeshLambertMaterial({color:c}));m.position.set(x,h/2,z);S.add(m);obs.push({x,z,w,d});obsM.push(m)}
+function box(x,z,w,h,d,c){const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),new THREE.MeshLambertMaterial({color:c}));m.position.set(x,h/2,z);S.add(m);collisionWorld.addModel(m);obs.push({x,z,w,h,d});obsM.push(m)}
 box(0,50,100,6,1,0x445);box(0,-50,100,6,1,0x445);box(50,0,1,6,100,0x445);box(-50,0,1,6,100,0x445);
 box(6,-8,3,3,3,0x665544);box(-8,-6,4,2,2,0x556655);box(0,-22,6,3,1.5,0x554466);box(14,-24,2,4,2,0x775555);box(-16,-24,3,2,3,0x557777);
-function collide(p){for(const b of obs){const dx=p.x-b.x,dz=p.z-b.z,hx=b.w/2+.4,hz=b.d/2+.4;if(Math.abs(dx)<hx&&Math.abs(dz)<hz){if(hx-Math.abs(dx)<hz-Math.abs(dz))p.x=b.x+Math.sign(dx||1)*hx;else p.z=b.z+Math.sign(dz||1)*hz}}}
+function collide(p){for(const b of obs){if(p.y>=b.h||p.y+1.8<=0)continue;const dx=p.x-b.x,dz=p.z-b.z,hx=b.w/2+.4,hz=b.d/2+.4;if(Math.abs(dx)<hx&&Math.abs(dz)<hz){if(hx-Math.abs(dx)<hz-Math.abs(dz))p.x=b.x+Math.sign(dx||1)*hx;else p.z=b.z+Math.sign(dz||1)*hz}}}
 // ---------- orb ----------
 const orb=new THREE.Mesh(new THREE.SphereGeometry(.4,24,16),new THREE.MeshBasicMaterial({color:0x44ff88}));orb.position.set(4,1.2,-2);S.add(orb);
 orb.add(new THREE.PointLight(0x44ff88,1.5,8));let orbT=0;
 // ---------- player ----------
-const P={pos:new THREE.Vector3(0,0,8),yaw:0,pitch:0,hp:200,dead:false,deadT:0,roll:0,eyeY:1.7,dash:3,dashTimer:0,dashT:0,dashFx:0,dashDir:new THREE.Vector3()};
+const P={pos:new THREE.Vector3(0,0,8),velocityY:0,grounded:true,yaw:0,pitch:0,hp:200,dead:false,deadT:0,roll:0,eyeY:1.7,dash:3,dashTimer:0,dashT:0,dashFx:0,dashDir:new THREE.Vector3()};
 const PS=8;const keys={};
 // ---------- enemies ----------
 const enemies=[],targets=[];
@@ -133,10 +133,12 @@ const tracers=[],_a=new THREE.Vector3(),_b=new THREE.Vector3(),Y=new THREE.Vecto
 function tracer(end){cam.updateMatrixWorld(true);muzzle.getWorldPosition(_a);const dir=_b.copy(end).sub(_a),len=dir.length();if(len<.1)return;dir.normalize();
  const m=new THREE.Mesh(new THREE.CylinderGeometry(.025,.025,1,5),new THREE.MeshBasicMaterial({color:0xffee88,transparent:true,opacity:.9}));
  m.scale.y=len;m.position.copy(_a).addScaledVector(dir,len/2);m.quaternion.setFromUnitVectors(Y,dir);S.add(m);tracers.push({m,t:.15})}
-function shoot(spread,dmg=15){ray.setFromCamera({x:(Math.random()-.5)*spread,y:(Math.random()-.5)*spread},cam);
+function shoot(spread,dmg=15){cam.updateWorldMatrix(true,false);ray.setFromCamera({x:(Math.random()-.5)*spread,y:(Math.random()-.5)*spread},cam);
  const act=targets.filter(m=>m.userData.e.alive);const h=ray.intersectObjects(act.concat(obsM),false)[0];
- tracer(h?h.point:ray.ray.at(80,new THREE.Vector3()));
- if(h&&h.object.userData.e)hitEnemy(h.object.userData.e,dmg,!!h.object.userData.head)}
+ const end=h?h.point:ray.ray.at(ray.far,new THREE.Vector3());
+ const wall=collisionWorld.raycastSegment(ray.ray.origin,end);
+ tracer(wall?wall.point:end);
+ if(!wall&&h&&h.object.userData.e)hitEnemy(h.object.userData.e,dmg,!!h.object.userData.head)}
 function fireGun(){if(W.cdT>0||W.reload>0||W.ammo<=0)return;
  if(W.buck){const n=Math.min(6,W.ammo);for(let i=0;i<n;i++)shoot(.18);W.ammo-=n;W.cdT=1.1;kick=3.6}
  else{shoot(0);W.ammo--;W.cdT=.25;kick=1}
@@ -147,16 +149,16 @@ function fireRifle(){if(W.cdT>0||W.rReload>0||W.rAmmo<=0)return;let cost=1;
  else{shoot(.02,9);W.cdT=1/9;kick=.5}
  W.rAmmo-=cost;fT=.05;rflash.visible=true;rfl.intensity=3;if(W.rAmmo==0)toast('Empty - press R')}
 const SWR=4,slashes=[];
-function slashFx(v){const g=new THREE.Group();g.position.set(P.pos.x,1.4,P.pos.z);g.rotation.set(0,P.yaw,v?-.6:.6,'YXZ');
+function slashFx(v){const g=new THREE.Group();g.position.set(P.pos.x,P.pos.y+1.4,P.pos.z);g.rotation.set(0,P.yaw,v?-.6:.6,'YXZ');
  const mk=(ri,ro,ts,tl,op)=>{const m=new THREE.Mesh(new THREE.RingGeometry(ri,ro,32,1,ts,tl),new THREE.MeshBasicMaterial({color:0xbfe9ff,transparent:true,opacity:op,side:THREE.DoubleSide,depthWrite:false}));m.rotation.x=-Math.PI/2;return m};
  const fan=mk(.6,SWR,Math.PI/6,2*Math.PI/3,.2),piv=new THREE.Group(),arc=mk(SWR*.75,SWR,Math.PI/2-Math.PI/18,Math.PI/9,.9);piv.add(arc);g.add(fan,piv);S.add(g);slashes.push({g,fan,arc,piv,t:0,v})}
 function swingSword(){if(W.cdT>0)return;W.cdT=.45;W.swing=.3;W.swingV^=1;slashFx(W.swingV);
- const f=fwd();for(const e of enemies){if(!e.alive)continue;const dx=e.g.position.x-P.pos.x,dz=e.g.position.z-P.pos.z,d=Math.hypot(dx,dz);
+ const f=fwd();for(const e of enemies){if(!e.alive)continue;const dx=e.g.position.x-P.pos.x,dz=e.g.position.z-P.pos.z,d=Math.hypot(dx,e.g.position.y-P.pos.y,dz);
   if(d<SWR&&(dx*f.x+dz*f.z)/(d||1)>.5)hitEnemy(e,20,false)}}
 const waves=[];
 function fireWave(){const perfect=W.chargeT>=3&&W.chargeT<=3.2;const f=fwd();
  const g=new THREE.Group(),c=new THREE.Mesh(new THREE.TorusGeometry(1,.07,6,20,Math.PI),new THREE.MeshBasicMaterial({color:perfect?0xffdd00:0xffffff}));
- c.rotation.x=-Math.PI/2;g.add(c);g.rotation.y=P.yaw;if(perfect)g.scale.set(1.4,1,1.4);g.position.set(P.pos.x+f.x,1.1,P.pos.z+f.z);S.add(g);
+ c.rotation.x=-Math.PI/2;g.add(c);g.rotation.y=P.yaw;if(perfect)g.scale.set(1.4,1,1.4);g.position.set(P.pos.x+f.x,P.pos.y+1.1,P.pos.z+f.z);S.add(g);
  waves.push({g,v:f.clone().multiplyScalar(PS*1.3*(perfect?1.4:1)),dmg:perfect?42:30,life:0,hit:new Set(),hr:perfect?2.24:1.6})}
 function fwd(){return new THREE.Vector3(-Math.sin(P.yaw),0,-Math.cos(P.yaw))}
 function reload(){if(W.cur==2&&W.rReload<=0&&W.rAmmo<35&&!W.swap){W.rReload=2;W.scope=false;W.scopeCharge=0;toast('Reloading...')}if(W.cur==0&&W.reload<=0&&W.ammo<12){W.reload=1;toast('Reloading...')}}
@@ -167,7 +169,19 @@ try{SENS=+localStorage.getItem('sens')||1}catch(e){}
 const sv=$('sv');sv.value=SENS;$('svv').textContent=SENS.toFixed(2);
 sv.oninput=()=>{SENS=+sv.value;$('svv').textContent=SENS.toFixed(2);try{localStorage.setItem('sens',SENS)}catch(e){}};
 $('ov').onclick=()=>{if(modelReady)R.domElement.requestPointerLock();else if(modelFailed)location.reload()};
-document.addEventListener('pointerlockchange',()=>{locked=document.pointerLockElement===R.domElement;$('ov').style.display=locked?'none':'flex'});
+function resetInput(){
+ for(const code of Object.keys(keys))delete keys[code];
+ W.down=false;W.holdT=0;W.cc=false;W.charging=false;W.chargeT=0;W.blocking=false;W.scope=false;W.scopeCharge=0;
+ P.dashT=0;P.dashFx=0;
+ hud();
+}
+function pauseGame(){
+ locked=false;resetInput();$('ov').style.display='flex';
+ if(document.pointerLockElement===R.domElement)document.exitPointerLock();
+}
+document.addEventListener('pointerlockchange',()=>{locked=document.pointerLockElement===R.domElement;if(!locked)resetInput();$('ov').style.display=locked?'none':'flex'});
+addEventListener('blur',pauseGame);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)pauseGame()});
 addEventListener('mousemove',e=>{if(!locked)return;P.yaw-=e.movementX*.0022*SENS*cam.fov/75;P.pitch=Math.max(-1.45,Math.min(1.45,P.pitch-e.movementY*.0022*SENS*cam.fov/75))});
 addEventListener('contextmenu',e=>e.preventDefault());
 addEventListener('mousedown',e=>{if(!locked||W.swap||P.dead)return;
@@ -176,31 +190,36 @@ addEventListener('mousedown',e=>{if(!locked||W.swap||P.dead)return;
 addEventListener('mouseup',e=>{if(e.button==0&&W.cur==2)W.down=false;if(e.button!=0||W.cur!=1||!W.down)return;W.down=false;
  if(W.wave){if(W.charging){if(W.chargeT>=3)fireWave();W.waveCD=1;W.charging=false;W.chargeT=0;W.cdT=.3}else if(W.holdT<.15)swingSword();W.cc=false}
  else{if(W.blocking)W.blocking=false;else if(W.holdT<.15)swingSword()}});
-addEventListener('keydown',e=>{if(e.repeat)return;keys[e.code]=true;if(!locked||P.dead)return;
+addEventListener('keydown',e=>{if(e.repeat||!locked||P.dead)return;keys[e.code]=true;
  if(e.code=='ShiftLeft'&&P.dash>=1&&P.dashT<=0){const d=inDir();if(d.lengthSq()==0)d.copy(fwd());P.dashDir.copy(d.normalize());P.dash--;P.dashT=.12}
  if(e.code=='KeyF')interact();if(e.code=='KeyR')reload();
  if(e.code=='Digit1')swapTo(0);if(e.code=='Digit2')swapTo(1);if(e.code=='Digit3')swapTo(2);if(e.code=='KeyQ')swapTo((W.cur+1)%3)});
 addEventListener('keyup',e=>keys[e.code]=false);
 function inDir(){if(P.dead)return new THREE.Vector3();const f=fwd(),r=new THREE.Vector3(Math.cos(P.yaw),0,-Math.sin(P.yaw)),d=new THREE.Vector3();
  if(keys.KeyW)d.add(f);if(keys.KeyS)d.sub(f);if(keys.KeyD)d.add(r);if(keys.KeyA)d.sub(r);return d.normalize()}
-function nearOrb(){return orb.visible&&Math.hypot(orb.position.x-P.pos.x,orb.position.z-P.pos.z)<3}
+function nearOrb(){return orb.visible&&Math.hypot(orb.position.x-P.pos.x,orb.position.y-(P.pos.y+1.2),orb.position.z-P.pos.z)<3}
 function interact(){if(!nearOrb())return;if(P.hp>=200){toast('HP already full');return}P.hp=Math.min(200,P.hp+50);orb.visible=false;orbT=10;toast('+50 HP')}
 // ---------- update ----------
 function update(dt){
  if(P.dead){P.deadT+=dt;const k=Math.min(1,P.deadT),e=k*k*(3-2*k);P.roll=e*80*Math.PI/180;P.eyeY=1.7-e*1.2;$('flash').style.opacity=.15+.3*e;
-  if(P.deadT>=2.5){P.dead=false;P.hp=200;P.pos.set(0,0,8);P.roll=0;P.eyeY=1.7;$('flash').style.opacity=0;toast('Respawned')}}
+  if(P.deadT>=2.5){P.dead=false;P.hp=200;P.pos.set(0,0,8);P.velocityY=0;P.grounded=true;P.roll=0;P.eyeY=1.7;$('flash').style.opacity=0;toast('Respawned')}}
  // movement
  let sp=PS*(W.charging?.3:1)*(W.cur==2&&W.scope?.5:1);const d=inDir();
- collisionWorld.move(P.pos,d.clone().multiplyScalar(sp*dt));
+ const movement=d.clone().multiplyScalar(sp*dt);
  const mv=d.lengthSq()>0&&P.dashT<=0;bobA+=((mv?1:0)-bobA)*Math.min(1,dt*10);if(mv)bobT+=dt*10*(sp/PS);
- if(P.dashT>0){const s=Math.min(dt,P.dashT);collisionWorld.move(P.pos,P.dashDir.clone().multiplyScalar(5/.12*s));P.dashT-=s}
- P.pos.x=Math.max(-48,Math.min(48,P.pos.x));P.pos.z=Math.max(-48,Math.min(48,P.pos.z));collide(P.pos);
+ if(P.dashT>0){const s=Math.min(dt,P.dashT);movement.addScaledVector(P.dashDir,5/.12*s);P.dashT-=s}
+ // Feet position follows model surfaces; gravity brings the player down after leaving an edge.
+ P.velocityY=Math.max(-50,P.velocityY-24*dt);movement.y=P.velocityY*dt;
+ const contact=collisionWorld.move(P.pos,movement);P.grounded=contact.grounded;
+ if((contact.grounded&&P.velocityY<0)||(contact.hitCeiling&&P.velocityY>0))P.velocityY=0;
+ if(P.pos.y<=0){P.pos.y=0;P.velocityY=0;P.grounded=true}
+ P.pos.x=Math.max(-48,Math.min(48,P.pos.x));P.pos.z=Math.max(-48,Math.min(48,P.pos.z));
  if(P.dash<3){P.dashTimer+=dt;if(P.dashTimer>=2.5){P.dash++;P.dashTimer=0}}
  if(W.cur==2&&W.scope)W.scopeCharge=Math.min(2,W.scopeCharge+dt)
  if(P.dashT>0)P.dashFx=1;else P.dashFx=Math.max(0,P.dashFx-dt*3.5);
  {const e=P.dashFx,f=fwd(),dd=P.dashDir,fw=Math.abs(dd.x*f.x+dd.z*f.z),sd=Math.abs(dd.x*Math.cos(P.yaw)-dd.z*Math.sin(P.yaw));
 }
- cam.position.set(P.pos.x,P.eyeY,P.pos.z);const tf=((W.cur==2&&W.scope)?75/1.8:75)*(1-.2*P.dashFx);cam.fov+=(tf-cam.fov)*Math.min(1,dt*14);cam.updateProjectionMatrix();muzzle=W.cur==2?rflash:flash;{const as=(W.cur==2&&W.scope)?.5:0;cam.rotation.set(P.pitch+W.ck+Math.abs(Math.cos(bobT))*.015*bobA*as,P.yaw+Math.sin(bobT)*.02*bobA*as,P.roll,'YXZ')};
+ cam.position.set(P.pos.x,P.pos.y+P.eyeY,P.pos.z);const tf=((W.cur==2&&W.scope)?75/1.8:75)*(1-.2*P.dashFx);cam.fov+=(tf-cam.fov)*Math.min(1,dt*14);cam.updateProjectionMatrix();muzzle=W.cur==2?rflash:flash;{const as=(W.cur==2&&W.scope)?.5:0;cam.rotation.set(P.pitch+W.ck+Math.abs(Math.cos(bobT))*.015*bobA*as,P.yaw+Math.sin(bobT)*.02*bobA*as,P.roll,'YXZ')};
  // weapon state
  W.cdT-=dt;W.waveCD-=dt;if(W.rReload>0){W.rReload-=dt;if(W.rReload<=0)W.rAmmo=35}
  if(W.cur==2&&!W.swap&&W.down&&!W.scope)fireRifle();if(W.reload>0){W.reload-=dt;if(W.reload<=0)W.ammo=12}
@@ -228,7 +247,7 @@ function update(dt){
  view.position.x=Math.sin(bobT)*.012*bobA;view.position.y-=Math.abs(Math.cos(bobT))*.014*bobA;view.rotation.z=Math.sin(bobT)*.012*bobA;
  // waves
  for(let i=waves.length-1;i>=0;i--){const w=waves[i];w.g.position.addScaledVector(w.v,dt);w.life+=dt;
-  for(const e of enemies){if(e.alive&&!w.hit.has(e)&&Math.hypot(e.g.position.x-w.g.position.x,e.g.position.z-w.g.position.z)<w.hr){w.hit.add(e);hitEnemy(e,w.dmg,false)}}
+  for(const e of enemies){if(e.alive&&!w.hit.has(e)&&Math.hypot(e.g.position.x-w.g.position.x,e.g.position.y+1.1-w.g.position.y,e.g.position.z-w.g.position.z)<w.hr){w.hit.add(e);hitEnemy(e,w.dmg,false)}}
   if(w.life>3.2||Math.abs(w.g.position.x)>49||Math.abs(w.g.position.z)>49){S.remove(w.g);waves.splice(i,1)}}
  for(let i=tracers.length-1;i>=0;i--){const t=tracers[i];t.t-=dt;t.m.material.opacity=Math.max(0,t.t/.15);if(t.t<=0){S.remove(t.m);t.m.geometry.dispose();t.m.material.dispose();tracers.splice(i,1)}}
  for(let i=slashes.length-1;i>=0;i--){const f=slashes[i];f.t+=dt;const k=f.t/.22;{const sw=Math.min(1,k*1.4);f.piv.rotation.y=f.v?Math.PI/3-2*Math.PI/3*sw:-Math.PI/3+2*Math.PI/3*sw}f.arc.material.opacity=.9*Math.max(0,1-k);f.fan.material.opacity=.2*Math.max(0,1-k);
@@ -243,15 +262,15 @@ function update(dt){
   e.bar.quaternion.copy(cam.quaternion);
   const dx=P.pos.x-e.g.position.x,dz=P.pos.z-e.g.position.z,dist=Math.hypot(dx,dz);
   e.m.rotation.y=Math.atan2(dx,dz);e.cd-=dt;
-  if(e.type==1){if(dist<2.5&&e.cd<=0){hurt(20);e.cd=1.2}}
+  if(e.type==1){if(dist<2.5&&Math.abs(P.pos.y-e.g.position.y)<1.8&&e.cd<=0){hurt(20);e.cd=1.2}}
   else{e.dt-=dt;if(e.dt<=0){e.dir*=-1;e.dt=1+Math.random()*2}
    const nx=dx/dist,nz=dz/dist;let mx=-nz*e.dir,mz=nx*e.dir;
    if(dist>16){mx+=nx;mz+=nz}else if(dist<9){mx-=nx;mz-=nz}
    e.g.position.x+=mx*3*dt;e.g.position.z+=mz*3*dt;e.g.position.x=Math.max(-47,Math.min(47,e.g.position.x));e.g.position.z=Math.max(-47,Math.min(47,e.g.position.z));collide(e.g.position);
    if(e.cd<=0&&dist<45){e.cd=1.6;const p=new THREE.Mesh(new THREE.SphereGeometry(.15,8,8),new THREE.MeshBasicMaterial({color:0xffaa22}));
-    p.position.set(e.g.position.x,1.5,e.g.position.z);S.add(p);const v=new THREE.Vector3(P.pos.x-p.position.x,1.2-1.5,P.pos.z-p.position.z).normalize().multiplyScalar(26);eProj.push({m:p,v,life:0})}}}
+    p.position.set(e.g.position.x,1.5,e.g.position.z);S.add(p);const v=new THREE.Vector3(P.pos.x-p.position.x,P.pos.y+1.2-p.position.y,P.pos.z-p.position.z).normalize().multiplyScalar(26);eProj.push({m:p,v,life:0})}}}
  for(let i=eProj.length-1;i>=0;i--){const p=eProj[i];p.m.position.addScaledVector(p.v,dt);p.life+=dt;let rm=p.life>3;
-  if(Math.hypot(p.m.position.x-P.pos.x,p.m.position.z-P.pos.z)<.7&&Math.abs(p.m.position.y-1.2)<1.1){hurt(10);rm=true}
+  if(Math.hypot(p.m.position.x-P.pos.x,p.m.position.z-P.pos.z)<.7&&Math.abs(p.m.position.y-(P.pos.y+1.2))<1.1){hurt(10);rm=true}
   for(const b of obs)if(Math.abs(p.m.position.x-b.x)<b.w/2&&Math.abs(p.m.position.z-b.z)<b.d/2&&p.m.position.y<3)rm=true;
   if(rm){S.remove(p.m);eProj.splice(i,1)}}
  hud()}
